@@ -2600,6 +2600,95 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
 
         ImGui::EndTable();
       }
+
+      // envelope preview: simulate the ADSR (same algorithm as macroInt.cpp)
+      // and draw it under the parameters. the bars show output amplitude
+      // (log-scaled if the macro displays log volume) and the line shows the
+      // raw envelope level. the note is released at the marker.
+      if (i.macro->open&1) {
+        static float adsrPreviewBar[256];
+        static int adsrPreviewRaw[256];
+
+        const int aLow=i.macro->val[0];
+        const int aHigh=i.macro->val[1];
+        const bool aInv=(aLow>aHigh);
+        const int aBottom=aInv?((aLow<<8)|0xff):(aLow<<8);
+        const int aTop=aInv?(aHigh<<8):((aHigh<<8)|0xff);
+        const int aSus=aInv?(i.macro->val[5]<<8):((i.macro->val[5]<<8)|0xff);
+        const int releaseTick=192;
+        int aPos=aBottom;
+        int aPhase=0;
+        int aDelay=0;
+        for (int t=0; t<256; t++) {
+          if (t==releaseTick && aPhase<3) {
+            aPhase=3;
+            aDelay=0;
+          }
+          if (aDelay>0) {
+            aDelay--;
+          } else switch (aPhase) {
+            case 0: // attack
+              aPos+=aInv?(-i.macro->val[2]):i.macro->val[2];
+              if (aInv?(aPos<=aTop):(aPos>=aTop)) {
+                aPos=aTop;
+                aPhase=1;
+                aDelay=i.macro->val[3];
+              }
+              break;
+            case 1: // decay
+              aPos+=aInv?i.macro->val[4]:(-i.macro->val[4]);
+              if (aInv?(aPos>=aSus):(aPos<=aSus)) {
+                aPos=aSus;
+                aPhase=2;
+                aDelay=i.macro->val[6];
+              }
+              break;
+            case 2: // sustain
+              aPos+=aInv?i.macro->val[7]:(-i.macro->val[7]);
+              if (aInv?(aPos>=aBottom):(aPos<=aBottom)) {
+                aPos=aBottom;
+                aPhase=4;
+              }
+              break;
+            case 3: // release
+              aPos+=aInv?i.macro->val[8]:(-i.macro->val[8]);
+              if (aInv?(aPos>=aBottom):(aPos<=aBottom)) {
+                aPos=aBottom;
+                aPhase=4;
+              }
+              break;
+            case 4: // end
+              aPos=aBottom;
+              break;
+          }
+          adsrPreviewRaw[t]=aPos>>8;
+          if (i.logVolDiv>0.0f) {
+            adsrPreviewBar[t]=(adsrPreviewRaw[t]<=0 && i.logVolZeroMute)?0.0f:(i.max*pow(2.0,(adsrPreviewRaw[t]-i.max)/i.logVolDiv));
+          } else {
+            adsrPreviewBar[t]=adsrPreviewRaw[t];
+          }
+        }
+
+        PlotCustom("##IMacroADSRPreview",adsrPreviewBar,256,0,NULL,i.min,i.max,ImVec2(availableWidth,96.0f*dpiScale),sizeof(float),i.color,256,i.hoverFunc,i.hoverFunc?adsrPreviewRaw:NULL,true);
+
+        // draw the raw envelope line and release marker on top
+        ImDrawList* dl=ImGui::GetWindowDrawList();
+        ImVec2 rMin=ImGui::GetItemRectMin();
+        ImVec2 rMax=ImGui::GetItemRectMax();
+        const float rW=rMax.x-rMin.x;
+        const float rH=rMax.y-rMin.y;
+        ImVec2 prevPoint;
+        for (int t=0; t<256; t++) {
+          ImVec2 curPoint=ImVec2(
+            rMin.x+rW*(t+0.5f)/256.0f,
+            rMax.y-rH*float(adsrPreviewRaw[t]-i.min)/float(MAX(1,i.max-i.min))
+          );
+          if (t>0) dl->AddLine(prevPoint,curPoint,ImGui::GetColorU32(ImGuiCol_Text,0.6f),dpiScale);
+          prevPoint=curPoint;
+        }
+        const float relX=rMin.x+rW*((float)releaseTick/256.0f);
+        dl->AddLine(ImVec2(relX,rMin.y),ImVec2(relX,rMax.y),ImGui::GetColorU32(ImVec4(1.0f,0.3f,0.3f,0.5f)),dpiScale);
+      }
     }
     if (i.macro->open&4) {
       const bool compact=(availableWidth<300.0f*dpiScale);
