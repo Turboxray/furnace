@@ -302,6 +302,23 @@ void FurnaceGUI::drawExportVGM(bool onWindow) {
       "pattern indexes are ordered as they appear in the song."
     ));
   }
+  ImGui::Checkbox(_("add note hints"),&vgmExportNoteHints);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(_(
+      "inserts a data block whenever a new note starts on a channel.\n"
+      "useful if you are writing a playback routine which shares\n"
+      "channels with sound effects, so it knows when to take\n"
+      "a channel back once the sound effect is over.\n\n"
+
+      "the format of a note hint data block is:\n"
+      "67 66 FE 02 00 00 00 02 cc\n"
+      "- cc: channel\n\n"
+
+      "channels are ordered as they appear in the song,\n"
+      "counting only exported channels.\n"
+      "the hint is placed before the note's register writes."
+    ));
+  }
   ImGui::Checkbox(_("direct stream mode"),&vgmExportDirectStream);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(_(

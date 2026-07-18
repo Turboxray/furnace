@@ -1254,7 +1254,7 @@ void DivEngine::performVGMWrite(SafeWriter* w, DivSystem sys, DivRegWrite& write
   chipVol.push_back((_id)|(0x80000100)|(((unsigned int)_vol)<<16)); \
 }
 
-SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool patternHints, bool directStream, int trailingTicks, bool dpcm07, int correctedRate) {
+SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool patternHints, bool directStream, int trailingTicks, bool dpcm07, int correctedRate, bool noteHints) {
   if (version<0x150) {
     lastError="VGM version is too low";
     return NULL;
@@ -2686,6 +2686,12 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
     chan[i].wentThroughNote=false;
     chan[i].goneThroughNote=false;
   }
+  // note hints use the command stream to detect new notes
+  bool oldCmdStreamEnabled=cmdStreamEnabled;
+  if (noteHints) {
+    cmdStream.clear();
+    cmdStreamEnabled=true;
+  }
   while (!done) {
     if (loopPos==-1) {
       if (loopOrder==curOrder && loopRow==curRow) {
@@ -2774,7 +2780,27 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
           }
         }
       }
+
+      // check for new notes
+      if (noteHints) {
+        for (DivCommand& c: cmdStream) {
+          if (c.cmd!=DIV_CMD_NOTE_ON) continue;
+          if (c.chan<0 || c.chan>=song.chans) continue;
+          if (!willExport[song.dispatchOfChan[c.chan]]) continue;
+          int exportChan=0;
+          for (int i=0; i<c.chan; i++) {
+            if (willExport[song.dispatchOfChan[i]]) exportChan++;
+          }
+          w->writeC(0x67);
+          w->writeC(0x66);
+          w->writeC(0xfe);
+          w->writeI(2);
+          w->writeC(0x02);
+          w->writeC(exportChan);
+        }
+      }
     }
+    if (noteHints) cmdStream.clear();
 
     auto runStreams=[&](int runTime, int& wtAccum) -> int {
       if (!directStream) {
@@ -2930,6 +2956,11 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
   }
   // end of song
   w->writeC(0x66);
+
+  if (noteHints) {
+    cmdStream.clear();
+    cmdStreamEnabled=oldCmdStreamEnabled;
+  }
 
   got.rate=origRate;
 
