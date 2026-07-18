@@ -1494,8 +1494,12 @@ struct FurnaceGUIMacroDesc {
   bool isArp;
   bool isPitch;
   // display the macro log-scaled (bar height represents output amplitude).
-  // used for logarithmic volume registers (e.g. PCE).
-  bool logVol;
+  // used for logarithmic volume/panning registers (e.g. PCE).
+  // logVolDiv: 0 disables. otherwise amplitude=2^((value-max)/logVolDiv),
+  //   so 4 = 1.5dB per step (PCE volume) and 2 = 3dB per step (PCE panning).
+  // logVolZeroMute: value 0 is a hard mute rather than just the quietest step.
+  float logVolDiv;
+  bool logVolZeroMute;
 
   FurnaceGUIMacroDesc(const char* name, DivInstrumentMacro* m, int macroMin, int macroMax, float macroHeight, ImVec4 col=ImVec4(1.0f,1.0f,1.0f,1.0f), bool block=false, const char* mName=NULL, String (*hf)(int,float,void*)=NULL, bool bitfield=false, const char** bfVal=NULL, bool bit30Special=false, void* hfu=NULL, bool isArp=false, bool isPitch=false):
     ins(NULL),
@@ -1512,7 +1516,8 @@ struct FurnaceGUIMacroDesc {
     hoverFuncUser(hfu),
     isArp(isArp),
     isPitch(isPitch),
-    logVol(false) {
+    logVolDiv(0.0f),
+    logVolZeroMute(false) {
     // MSVC -> hell
     this->min=macroMin;
     this->max=macroMax;
@@ -2675,6 +2680,7 @@ class FurnaceGUI {
   bool macroDragActive;
   bool macroDragLogVol;
   float macroDragLogVolMax;
+  float macroDragLogVolDiv;
   FurnaceGUIMacroDesc lastMacroDesc;
   int macroOffX, macroOffY;
   float macroScaleX, macroScaleY;

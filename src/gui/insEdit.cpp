@@ -732,6 +732,19 @@ String macroHoverVolPCE(int id, float val, void* u) {
   return fmt::sprintf("%d: %d (%.1fdB)",id,v,1.50515*(v-31));
 }
 
+// PCE panning is also logarithmic at ~3dB per step, but 0 is the quietest
+// level (~-45dB), not a mute.
+String macroHoverPanPCE(int id, float val, void* u) {
+  int v;
+  if (u==NULL) {
+    v=(int)val;
+  } else {
+    v=((int*)u)[id&255];
+  }
+  if (v<0) v=0;
+  return fmt::sprintf("%d: %d (%.1fdB)",id,v,3.0103*(v-15));
+}
+
 String macroHoverLoop(int id, float val, void* u) {
   if (val>1) return _("Release");
   if (val>0) return _("Loop");
@@ -2136,9 +2149,9 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       } else {
         asFloat[j]=deBit30(i.macro->val[j+macroDragScroll]);
         asInt[j]=deBit30(i.macro->val[j+macroDragScroll]);
-        if (i.logVol) {
-          // draw log volume as actual output amplitude
-          asFloat[j]=(asFloat[j]<=0.0f)?0.0f:(i.max*pow(2.0,(asFloat[j]-i.max)/4.0));
+        if (i.logVolDiv>0.0f) {
+          // draw log volume/panning as actual output amplitude
+          asFloat[j]=(asFloat[j]<=0.0f && i.logVolZeroMute)?0.0f:(i.max*pow(2.0,(asFloat[j]-i.max)/i.logVolDiv));
         }
         if (i.bit30) bit30Indicator[j]=enBit30(i.macro->val[j+macroDragScroll]);
       }
@@ -2209,8 +2222,9 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       macroDragInitialValue=false;
       macroDragLen=totalFit;
       macroDragActive=true;
-      macroDragLogVol=i.logVol;
+      macroDragLogVol=(i.logVolDiv>0.0f);
       macroDragLogVolMax=i.max;
+      macroDragLogVolDiv=(i.logVolDiv>0.0f)?i.logVolDiv:4.0f;
       macroDragBit30=i.bit30;
       macroDragSettingBit30=false;
       macroDragTarget=i.macro->val;
@@ -8341,14 +8355,19 @@ void FurnaceGUI::drawInsEdit() {
               break;
             case DIV_INS_PCE:
               macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDB?macroHoverVolPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.volMacro.val:NULL));
-              macroList.back().logVol=settings.volMacroDB;
+              if (settings.volMacroDB) {
+                macroList.back().logVolDiv=4.0f;
+                macroList.back().logVolZeroMute=true;
+              }
               macroList.push_back(FurnaceGUIMacroDesc(_("Arpeggio"),&ins->std.arpMacro,-120,120,160,uiColors[GUI_COLOR_MACRO_PITCH],true,NULL,macroHoverNote,false,NULL,true,ins->std.arpMacro.val));
               if (!ins->amiga.useSample) {
                 macroList.push_back(FurnaceGUIMacroDesc(_("Noise"),&ins->std.dutyMacro,0,1,160,uiColors[GUI_COLOR_MACRO_NOISE]));
               }
               macroList.push_back(FurnaceGUIMacroDesc(_("Waveform"),&ins->std.waveMacro,0,waveCount,160,uiColors[GUI_COLOR_MACRO_WAVE],false,NULL,NULL,false,NULL));
-              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (left)"),&ins->std.panLMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL));
-              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (right)"),&ins->std.panRMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER]));
+              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (left)"),&ins->std.panLMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDB?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.panLMacro.val:NULL));
+              if (settings.volMacroDB) macroList.back().logVolDiv=2.0f;
+              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (right)"),&ins->std.panRMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDB?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.panRMacro.val:NULL));
+              if (settings.volMacroDB) macroList.back().logVolDiv=2.0f;
               macroList.push_back(FurnaceGUIMacroDesc(_("Pitch"),&ins->std.pitchMacro,-2048,2047,160,uiColors[GUI_COLOR_MACRO_PITCH],true,macroRelativeMode));
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;
