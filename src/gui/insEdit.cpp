@@ -720,8 +720,14 @@ String macroHover(int id, float val, void* u) {
 
 // PCE volume is logarithmic: each step below maximum attenuates by 2^(1/4) (~1.5dB).
 // value 0 is a hard mute.
+// the plot displays amplitude, so the raw step is read from the macro data (u).
 String macroHoverVolPCE(int id, float val, void* u) {
-  int v=(int)val;
+  int v;
+  if (u==NULL) {
+    v=(int)val;
+  } else {
+    v=((int*)u)[id&255];
+  }
   if (v<=0) return fmt::sprintf(_("%d: 0 (mute)"),id);
   return fmt::sprintf("%d: %d (%.1fdB)",id,v,1.50515*(v-31));
 }
@@ -2130,6 +2136,10 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       } else {
         asFloat[j]=deBit30(i.macro->val[j+macroDragScroll]);
         asInt[j]=deBit30(i.macro->val[j+macroDragScroll]);
+        if (i.logVol) {
+          // draw log volume as actual output amplitude
+          asFloat[j]=(asFloat[j]<=0.0f)?0.0f:(i.max*pow(2.0,(asFloat[j]-i.max)/4.0));
+        }
         if (i.bit30) bit30Indicator[j]=enBit30(i.macro->val[j+macroDragScroll]);
       }
       if (j+macroDragScroll>=i.macro->len || (j+macroDragScroll>i.macro->rel && i.macro->loop<i.macro->rel)) {
@@ -2199,6 +2209,8 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       macroDragInitialValue=false;
       macroDragLen=totalFit;
       macroDragActive=true;
+      macroDragLogVol=i.logVol;
+      macroDragLogVolMax=i.max;
       macroDragBit30=i.bit30;
       macroDragSettingBit30=false;
       macroDragTarget=i.macro->val;
@@ -2279,6 +2291,7 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
           macroDragInitialValue=false;
           macroDragLen=totalFit;
           macroDragActive=true;
+          macroDragLogVol=false;
           macroDragBit30=i.bit30;
           macroDragSettingBit30=true;
           macroDragTarget=i.macro->val;
@@ -7908,6 +7921,7 @@ void FurnaceGUI::drawInsEdit() {
             macroDragInitialValue=false;
             macroDragLen=32;
             macroDragActive=true;
+            macroDragLogVol=false;
             macroDragCTarget=(unsigned char*)ins->fds.modTable;
             macroDragChar=true;
             macroDragLineMode=false;
@@ -7959,6 +7973,7 @@ void FurnaceGUI::drawInsEdit() {
             macroDragInitialValue=false;
             macroDragLen=32;
             macroDragActive=true;
+            macroDragLogVol=false;
             macroDragCTarget=(unsigned char*)ins->fds.modTable;
             macroDragChar=true;
             macroDragLineMode=false;
@@ -8325,7 +8340,8 @@ void FurnaceGUI::drawInsEdit() {
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;
             case DIV_INS_PCE:
-              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDB?macroHoverVolPCE:NULL));
+              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDB?macroHoverVolPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.volMacro.val:NULL));
+              macroList.back().logVol=settings.volMacroDB;
               macroList.push_back(FurnaceGUIMacroDesc(_("Arpeggio"),&ins->std.arpMacro,-120,120,160,uiColors[GUI_COLOR_MACRO_PITCH],true,NULL,macroHoverNote,false,NULL,true,ins->std.arpMacro.val));
               if (!ins->amiga.useSample) {
                 macroList.push_back(FurnaceGUIMacroDesc(_("Noise"),&ins->std.dutyMacro,0,1,160,uiColors[GUI_COLOR_MACRO_NOISE]));

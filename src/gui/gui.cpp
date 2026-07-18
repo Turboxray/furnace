@@ -3403,6 +3403,15 @@ void FurnaceGUI::processDrags(int dragX, int dragY) {
       int y;
       if (macroDragBitMode) {
         y=(int)(macroDragMax-((dragY-macroDragStart.y)*(double(macroDragMax-macroDragMin)/(double)MAX(1,macroDragAreaSize.y))));
+      } else if (macroDragLogVol) {
+        // the plot displays amplitude - convert the mouse position back to a register step
+        // (inverse of the 2^(step/4) curve used for display)
+        double amp=macroDragMax-((dragY-macroDragStart.y)*(double(macroDragMax-macroDragMin)/(double)MAX(1,macroDragAreaSize.y)));
+        if (amp<=(macroDragLogVolMax*pow(2.0,(0.5-macroDragLogVolMax)/4.0))) {
+          y=0;
+        } else {
+          y=round(macroDragLogVolMax+4.0*log2(amp/macroDragLogVolMax));
+        }
       } else {
         y=round(macroDragMax-((dragY-macroDragStart.y)*(double(macroDragMax-macroDragMin)/(double)MAX(1,macroDragAreaSize.y))));
       }
@@ -9558,6 +9567,8 @@ FurnaceGUI::FurnaceGUI():
   macroDragLineInitial(0,0),
   macroDragLineInitialV(0,0),
   macroDragActive(false),
+  macroDragLogVol(false),
+  macroDragLogVolMax(31.0f),
   lastMacroDesc(NULL,NULL,0,0,0.0f),
   macroOffX(0),
   macroOffY(0),
