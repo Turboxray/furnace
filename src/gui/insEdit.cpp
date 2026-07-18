@@ -2703,7 +2703,7 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
           if (best>=0) adsrPreviewHi[best]=true;
         }
 
-        PlotCustom("##IMacroADSRPreview",adsrPreviewBar,256,0,NULL,i.min,i.max,ImVec2(availableWidth,96.0f*dpiScale),sizeof(float),i.color,256,i.hoverFunc,i.hoverFunc?adsrPreviewRaw:NULL,true,NULL,adsrPreviewHi,uiColors[GUI_COLOR_MACRO_HIGHLIGHT]);
+        PlotCustom("##IMacroADSRPreview",adsrPreviewBar,256,0,NULL,i.min,i.max,ImVec2(availableWidth,96.0f*dpiScale),sizeof(float),i.color,256,i.hoverFunc,i.hoverFunc?adsrPreviewRaw:NULL,true);
 
         // draw the raw envelope line and release marker on top
         ImDrawList* dl=ImGui::GetWindowDrawList();
@@ -2722,6 +2722,13 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
         }
         const float relX=rMin.x+rW*((float)releaseTick/256.0f);
         dl->AddLine(ImVec2(relX,rMin.y),ImVec2(relX,rMax.y),ImGui::GetColorU32(ImVec4(1.0f,0.3f,0.3f,0.5f)),dpiScale);
+
+        // playing positions as vertical lines
+        for (int t=0; t<256; t++) {
+          if (!adsrPreviewHi[t]) continue;
+          const float hiX=rMin.x+rW*(t+0.5f)/256.0f;
+          dl->AddLine(ImVec2(hiX,rMin.y),ImVec2(hiX,rMax.y),ImGui::GetColorU32(uiColors[GUI_COLOR_MACRO_HIGHLIGHT]),2.0f*dpiScale);
+        }
       }
     }
     if (i.macro->open&4) {
