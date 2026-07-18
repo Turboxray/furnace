@@ -109,6 +109,8 @@ bool consoleNoControls=false;
 bool displayEngineFailError=false;
 bool displayLocaleFailError=false;
 bool vgmOutDirect=false;
+bool vgmOutPatternHints=false;
+bool vgmOutNoteHints=false;
 
 bool safeMode=false;
 bool safeModeWithAudio=false;
@@ -249,6 +251,22 @@ TAParamResult pSafeModeAudio(String val) {
 
 TAParamResult pDirect(String val) {
   vgmOutDirect=true;
+  return TA_PARAM_SUCCESS;
+}
+
+TAParamResult pPatHints(String val) {
+  vgmOutPatternHints=true;
+  return TA_PARAM_SUCCESS;
+}
+
+TAParamResult pNoteHints(String val) {
+  vgmOutNoteHints=true;
+  return TA_PARAM_SUCCESS;
+}
+
+TAParamResult pHints(String val) {
+  vgmOutPatternHints=true;
+  vgmOutNoteHints=true;
   return TA_PARAM_SUCCESS;
 }
 
@@ -640,6 +658,9 @@ void initParams() {
 
   params.push_back(TAParam("O","vgmout",true,pVGMOut,"<filename>","output .vgm data"));
   params.push_back(TAParam("D","direct",false,pDirect,"","set VGM export direct stream mode"));
+  params.push_back(TAParam("H","hints",false,pHints,"","enable pattern change and note hints in VGM export"));
+  params.push_back(TAParam("","pathints",false,pPatHints,"","enable pattern change hints in VGM export"));
+  params.push_back(TAParam("","notehints",false,pNoteHints,"","enable note hints in VGM export"));
   params.push_back(TAParam("C","cmdout",true,pCmdOut,"<filename>","output command stream"));
   params.push_back(TAParam("r","romout",true,pROMOut,"<filename|path>","export ROM file, or path for multi-file export"));
   params.push_back(TAParam("R","romconf",true,pROMConf,"<key>=<value>","set configuration parameter for ROM export"));
@@ -1065,7 +1086,7 @@ int main(int argc, char** argv) {
       }
     }
     if (vgmOutName!="") {
-      SafeWriter* w=e.saveVGM(NULL,true,0x171,false,vgmOutDirect);
+      SafeWriter* w=e.saveVGM(NULL,true,0x171,vgmOutPatternHints,vgmOutDirect,-1,false,44100,vgmOutNoteHints);
       if (w!=NULL) {
         FILE* f=ps_fopen(vgmOutName.c_str(),"wb");
         if (f!=NULL) {
