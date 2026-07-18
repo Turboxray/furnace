@@ -718,6 +718,16 @@ String macroHover(int id, float val, void* u) {
   return fmt::sprintf("%d: %d",id,(int)val);
 }
 
+// log display divisors: amplitude=2^((value-max)/div).
+// - amplitude view: half amplitude per 6dB.
+//   PCE volume is 1.5dB per step (div 4); PCE panning is 3dB per step (div 2).
+// - perception view: half perceived loudness per 10dB (Stevens' law/sone scale),
+//   so div = 10dB/(dB per step).
+#define LOGVOL_DIV_AMP_VOL_PCE 4.0f
+#define LOGVOL_DIV_AMP_PAN_PCE 2.0f
+#define LOGVOL_DIV_LOUD_VOL_PCE 6.6438f
+#define LOGVOL_DIV_LOUD_PAN_PCE 3.3219f
+
 // PCE volume is logarithmic: each step below maximum attenuates by 2^(1/4) (~1.5dB).
 // value 0 is a hard mute.
 // the plot displays amplitude, so the raw step is read from the macro data (u).
@@ -729,7 +739,8 @@ String macroHoverVolPCE(int id, float val, void* u) {
     v=((int*)u)[id&255];
   }
   if (v<=0) return fmt::sprintf(_("%d: 0 (mute)"),id);
-  return fmt::sprintf("%d: %d (%.1fdB)",id,v,1.50515*(v-31));
+  double db=1.50515*(v-31);
+  return fmt::sprintf(_("%d: %d (%.1fdB, ~%.0f%% loud)"),id,v,db,100.0*pow(2.0,db/10.0));
 }
 
 // PCE panning is also logarithmic at ~3dB per step, but 0 is the quietest
@@ -742,7 +753,8 @@ String macroHoverPanPCE(int id, float val, void* u) {
     v=((int*)u)[id&255];
   }
   if (v<0) v=0;
-  return fmt::sprintf("%d: %d (%.1fdB)",id,v,3.0103*(v-15));
+  double db=3.0103*(v-15);
+  return fmt::sprintf(_("%d: %d (%.1fdB, ~%.0f%% loud)"),id,v,db,100.0*pow(2.0,db/10.0));
 }
 
 String macroHoverLoop(int id, float val, void* u) {
@@ -8484,9 +8496,9 @@ void FurnaceGUI::drawInsEdit() {
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;
             case DIV_INS_PCE:
-              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDB?macroHoverVolPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.volMacro.val:NULL));
-              if (settings.volMacroDB) {
-                macroList.back().logVolDiv=4.0f;
+              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDisplay?macroHoverVolPCE:NULL,false,NULL,false,settings.volMacroDisplay?ins->std.volMacro.val:NULL));
+              if (settings.volMacroDisplay) {
+                macroList.back().logVolDiv=(settings.volMacroDisplay==2)?LOGVOL_DIV_LOUD_VOL_PCE:LOGVOL_DIV_AMP_VOL_PCE;
                 macroList.back().logVolZeroMute=true;
               }
               macroList.push_back(FurnaceGUIMacroDesc(_("Arpeggio"),&ins->std.arpMacro,-120,120,160,uiColors[GUI_COLOR_MACRO_PITCH],true,NULL,macroHoverNote,false,NULL,true,ins->std.arpMacro.val));
@@ -8494,10 +8506,10 @@ void FurnaceGUI::drawInsEdit() {
                 macroList.push_back(FurnaceGUIMacroDesc(_("Noise"),&ins->std.dutyMacro,0,1,160,uiColors[GUI_COLOR_MACRO_NOISE]));
               }
               macroList.push_back(FurnaceGUIMacroDesc(_("Waveform"),&ins->std.waveMacro,0,waveCount,160,uiColors[GUI_COLOR_MACRO_WAVE],false,NULL,NULL,false,NULL));
-              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (left)"),&ins->std.panLMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDB?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.panLMacro.val:NULL));
-              if (settings.volMacroDB) macroList.back().logVolDiv=2.0f;
-              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (right)"),&ins->std.panRMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDB?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDB?ins->std.panRMacro.val:NULL));
-              if (settings.volMacroDB) macroList.back().logVolDiv=2.0f;
+              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (left)"),&ins->std.panLMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDisplay?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDisplay?ins->std.panLMacro.val:NULL));
+              if (settings.volMacroDisplay) macroList.back().logVolDiv=(settings.volMacroDisplay==2)?LOGVOL_DIV_LOUD_PAN_PCE:LOGVOL_DIV_AMP_PAN_PCE;
+              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (right)"),&ins->std.panRMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDisplay?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDisplay?ins->std.panRMacro.val:NULL));
+              if (settings.volMacroDisplay) macroList.back().logVolDiv=(settings.volMacroDisplay==2)?LOGVOL_DIV_LOUD_PAN_PCE:LOGVOL_DIV_AMP_PAN_PCE;
               macroList.push_back(FurnaceGUIMacroDesc(_("Pitch"),&ins->std.pitchMacro,-2048,2047,160,uiColors[GUI_COLOR_MACRO_PITCH],true,macroRelativeMode));
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;

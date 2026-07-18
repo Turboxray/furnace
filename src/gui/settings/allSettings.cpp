@@ -2277,7 +2277,14 @@ void FurnaceGUI::initSettings() {
         }
       ),
       SETTING_CHECKBOX(_("Use classic macro editor vertical slider"),oldMacroVSlider),
-      SETTING_CHECKBOX(_("Show volume/panning macros in dB (logarithmic chips)"),volMacroDB),
+      SettingEntry::Radio(
+        _N("Volume/panning macro display (logarithmic chips):"),
+        "volMacroDisplay",&settings.volMacroDisplay,{
+          {_N("Register steps##vmd0"),0},
+          {_N("Amplitude (-6dB per halving)##vmd1"),1},
+          {_N("Perceived loudness (-10dB per halving)##vmd2"),2},
+        }
+      ),
       SettingEntry::Radio(
         _N("Macro step size/horizontal zoom::"),
         "autoMacroStepSize",&settings.autoMacroStepSize,{

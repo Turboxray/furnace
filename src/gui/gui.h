@@ -1996,7 +1996,8 @@ class FurnaceGUI {
     bool horizontalDataView;
     bool noMultiSystem;
     bool oldMacroVSlider;
-    bool volMacroDB;
+    // 0: register steps. 1: amplitude (dB). 2: perceived loudness (10dB per halving).
+    int volMacroDisplay;
     bool displayAllInsTypes;
     bool doubleClickColumn;
     bool blankIns;
@@ -2247,7 +2248,7 @@ class FurnaceGUI {
       horizontalDataView(false),
       noMultiSystem(false),
       oldMacroVSlider(false),
-      volMacroDB(false),
+      volMacroDisplay(0),
       displayAllInsTypes(false),
       doubleClickColumn(true),
       blankIns(false),
