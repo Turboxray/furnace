@@ -394,6 +394,7 @@ void FurnaceGUI::readConfig(DivConfig& conf, FurnaceGUISettingGroups groups) {
     settings.horizontalDataView=conf.getBool("horizontalDataView",0);
     settings.noMultiSystem=conf.getBool("noMultiSystem",0);
     settings.oldMacroVSlider=conf.getBool("oldMacroVSlider",0);
+    settings.volMacroDB=conf.getBool("volMacroDB",0);
     settings.unsignedDetune=conf.getBool("unsignedDetune",0);
     settings.centerPattern=conf.getBool("centerPattern",0);
     settings.ordersCursor=conf.getBool("ordersCursor",1);
@@ -890,6 +891,7 @@ void FurnaceGUI::writeConfig(DivConfig& conf, FurnaceGUISettingGroups groups) {
     conf.set("horizontalDataView",settings.horizontalDataView);
     conf.set("noMultiSystem",settings.noMultiSystem);
     conf.set("oldMacroVSlider",settings.oldMacroVSlider);
+    conf.set("volMacroDB",settings.volMacroDB);
     conf.set("unsignedDetune",settings.unsignedDetune);
     conf.set("centerPattern",settings.centerPattern);
     conf.set("ordersCursor",settings.ordersCursor);

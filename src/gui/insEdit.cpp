@@ -718,6 +718,14 @@ String macroHover(int id, float val, void* u) {
   return fmt::sprintf("%d: %d",id,(int)val);
 }
 
+// PCE volume is logarithmic: each step below maximum attenuates by 2^(1/4) (~1.5dB).
+// value 0 is a hard mute.
+String macroHoverVolPCE(int id, float val, void* u) {
+  int v=(int)val;
+  if (v<=0) return fmt::sprintf(_("%d: 0 (mute)"),id);
+  return fmt::sprintf("%d: %d (%.1fdB)",id,v,1.50515*(v-31));
+}
+
 String macroHoverLoop(int id, float val, void* u) {
   if (val>1) return _("Release");
   if (val>0) return _("Loop");
@@ -8317,7 +8325,7 @@ void FurnaceGUI::drawInsEdit() {
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;
             case DIV_INS_PCE:
-              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME]));
+              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDB?macroHoverVolPCE:NULL));
               macroList.push_back(FurnaceGUIMacroDesc(_("Arpeggio"),&ins->std.arpMacro,-120,120,160,uiColors[GUI_COLOR_MACRO_PITCH],true,NULL,macroHoverNote,false,NULL,true,ins->std.arpMacro.val));
               if (!ins->amiga.useSample) {
                 macroList.push_back(FurnaceGUIMacroDesc(_("Noise"),&ins->std.dutyMacro,0,1,160,uiColors[GUI_COLOR_MACRO_NOISE]));

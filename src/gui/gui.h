@@ -1987,6 +1987,7 @@ class FurnaceGUI {
     bool horizontalDataView;
     bool noMultiSystem;
     bool oldMacroVSlider;
+    bool volMacroDB;
     bool displayAllInsTypes;
     bool doubleClickColumn;
     bool blankIns;
@@ -2237,6 +2238,7 @@ class FurnaceGUI {
       horizontalDataView(false),
       noMultiSystem(false),
       oldMacroVSlider(false),
+      volMacroDB(false),
       displayAllInsTypes(false),
       doubleClickColumn(true),
       blankIns(false),
