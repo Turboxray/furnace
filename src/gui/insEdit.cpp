@@ -2608,6 +2608,9 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       if (i.macro->open&1) {
         static float adsrPreviewBar[256];
         static int adsrPreviewRaw[256];
+        static int adsrPreviewPhase[256];
+        static int adsrPreviewDelay[256];
+        static bool adsrPreviewHi[256];
 
         const int aLow=i.macro->val[0];
         const int aHigh=i.macro->val[1];
@@ -2662,6 +2665,8 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
               break;
           }
           adsrPreviewRaw[t]=aPos>>8;
+          adsrPreviewPhase[t]=aPhase;
+          adsrPreviewDelay[t]=aDelay;
           if (i.logVolDiv>0.0f) {
             adsrPreviewBar[t]=(adsrPreviewRaw[t]<=0 && i.logVolZeroMute)?0.0f:(i.max*pow(2.0,(adsrPreviewRaw[t]-i.max)/i.logVolDiv));
           } else {
@@ -2669,7 +2674,36 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
           }
         }
 
-        PlotCustom("##IMacroADSRPreview",adsrPreviewBar,256,0,NULL,i.min,i.max,ImVec2(availableWidth,96.0f*dpiScale),sizeof(float),i.color,256,i.hoverFunc,i.hoverFunc?adsrPreviewRaw:NULL,true);
+        // highlight the playing position: map each playing channel's envelope
+        // state (phase, level, remaining delay) to the closest preview tick
+        memset(adsrPreviewHi,0,256*sizeof(bool));
+        if (e->isRunning()) for (int j=0; j<e->getTotalChannelCount(); j++) {
+          DivChannelState* chanState=e->getChanState(j);
+          if (chanState==NULL) continue;
+          if (chanState->lastIns!=curIns) continue;
+
+          DivMacroInt* macroInt=e->getMacroInt(j);
+          if (macroInt==NULL) continue;
+
+          DivMacroStruct* macroStruct=macroInt->structByType(i.macro->macroType);
+          if (macroStruct==NULL) continue;
+          if (macroStruct->type!=1) continue;
+          if (!macroStruct->actualHad) continue;
+
+          int best=-1;
+          int bestScore=0x7fffffff;
+          for (int t=0; t<256; t++) {
+            if (adsrPreviewPhase[t]!=macroStruct->lastPos) continue;
+            int score=abs(adsrPreviewRaw[t]-macroStruct->val)*256+abs(adsrPreviewDelay[t]-macroStruct->delay);
+            if (score<bestScore) {
+              bestScore=score;
+              best=t;
+            }
+          }
+          if (best>=0) adsrPreviewHi[best]=true;
+        }
+
+        PlotCustom("##IMacroADSRPreview",adsrPreviewBar,256,0,NULL,i.min,i.max,ImVec2(availableWidth,96.0f*dpiScale),sizeof(float),i.color,256,i.hoverFunc,i.hoverFunc?adsrPreviewRaw:NULL,true,NULL,adsrPreviewHi,uiColors[GUI_COLOR_MACRO_HIGHLIGHT]);
 
         // draw the raw envelope line and release marker on top
         ImDrawList* dl=ImGui::GetWindowDrawList();
