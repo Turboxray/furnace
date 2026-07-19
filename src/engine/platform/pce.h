@@ -66,6 +66,9 @@ class DivPlatformPCE: public DivDispatch {
     //   sample mode.
     // - Generic Sample has a volume macro range of 0-64. that's why this variable exists.
     int macroVolMul, noiseSeek;
+    // whether the last dumped wave synth hint had the synth enabled
+    // (used to emit a disable hint on the transition; VGM export only).
+    bool wsHintOn;
     // wave synth - a tiny wave morphing engine for waveform effects.
     DivWaveSynth ws;
     // here's our constructor. notice how we set the default volume to maximum.
@@ -85,7 +88,8 @@ class DivPlatformPCE: public DivDispatch {
       setPos(false),
       wave(-1),
       macroVolMul(31),
-      noiseSeek(0) {}
+      noiseSeek(0),
+      wsHintOn(false) {}
   };
   // channel state. change this number appropriately.
   Channel chan[6];
@@ -126,6 +130,10 @@ class DivPlatformPCE: public DivDispatch {
 
   // private functions.
   void updateWave(int ch);
+  // dump a wave synth state hint as pseudo register writes (0xfffe0000
+  // range), picked up by the VGM exporter and turned into 67 66 FE
+  // kind-03 data blocks. VGM export (dumpWrites) only.
+  void dumpWSHint(int ch, DivInstrument* ins, bool reset);
   // these two were used in the debug window. keep them here just in case.
   friend void putDispatchChip(void*,int);
   friend void putDispatchChan(void*,int,int);
