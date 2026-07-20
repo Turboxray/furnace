@@ -1493,6 +1493,13 @@ struct FurnaceGUIMacroDesc {
   void* hoverFuncUser;
   bool isArp;
   bool isPitch;
+  // display the macro log-scaled (bar height represents output amplitude).
+  // used for logarithmic volume/panning registers (e.g. PCE).
+  // logVolDiv: 0 disables. otherwise amplitude=2^((value-max)/logVolDiv),
+  //   so 4 = 1.5dB per step (PCE volume) and 2 = 3dB per step (PCE panning).
+  // logVolZeroMute: value 0 is a hard mute rather than just the quietest step.
+  float logVolDiv;
+  bool logVolZeroMute;
 
   FurnaceGUIMacroDesc(const char* name, DivInstrumentMacro* m, int macroMin, int macroMax, float macroHeight, ImVec4 col=ImVec4(1.0f,1.0f,1.0f,1.0f), bool block=false, const char* mName=NULL, String (*hf)(int,float,void*)=NULL, bool bitfield=false, const char** bfVal=NULL, bool bit30Special=false, void* hfu=NULL, bool isArp=false, bool isPitch=false):
     ins(NULL),
@@ -1508,7 +1515,9 @@ struct FurnaceGUIMacroDesc {
     hoverFunc(hf),
     hoverFuncUser(hfu),
     isArp(isArp),
-    isPitch(isPitch) {
+    isPitch(isPitch),
+    logVolDiv(0.0f),
+    logVolZeroMute(false) {
     // MSVC -> hell
     this->min=macroMin;
     this->max=macroMax;
@@ -1814,7 +1823,7 @@ class FurnaceGUI {
   std::vector<String> availRenderDrivers;
   std::vector<String> availAudioDrivers;
 
-  bool quit, warnQuit, willCommit, edit, editClone, isPatUnique, modified, displayError, displayExporting, vgmExportLoop, vgmExportPatternHints, vgmExportDPCM07;
+  bool quit, warnQuit, willCommit, edit, editClone, isPatUnique, modified, displayError, displayExporting, vgmExportLoop, vgmExportPatternHints, vgmExportNoteHints, vgmExportDPCM07;
   bool vgmExportDirectStream, displayInsTypeList, displayWaveSizeList;
   bool portrait, injectBackUp, mobileMenuOpen, warnColorPushed;
   bool wantCaptureKeyboard, oldWantCaptureKeyboard, displayMacroMenu;
@@ -1987,6 +1996,8 @@ class FurnaceGUI {
     bool horizontalDataView;
     bool noMultiSystem;
     bool oldMacroVSlider;
+    // 0: register steps. 1: amplitude (dB). 2: perceived loudness (10dB per halving).
+    int volMacroDisplay;
     bool displayAllInsTypes;
     bool doubleClickColumn;
     bool blankIns;
@@ -2237,6 +2248,7 @@ class FurnaceGUI {
       horizontalDataView(false),
       noMultiSystem(false),
       oldMacroVSlider(false),
+      volMacroDisplay(0),
       displayAllInsTypes(false),
       doubleClickColumn(true),
       blankIns(false),
@@ -2667,6 +2679,9 @@ class FurnaceGUI {
   ImVec2 macroDragLineInitial;
   ImVec2 macroDragLineInitialV;
   bool macroDragActive;
+  bool macroDragLogVol;
+  float macroDragLogVolMax;
+  float macroDragLogVolDiv;
   FurnaceGUIMacroDesc lastMacroDesc;
   int macroOffX, macroOffY;
   float macroScaleX, macroScaleY;

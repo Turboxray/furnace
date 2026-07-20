@@ -195,6 +195,23 @@ void DivPlatformPCE::acquireDirect(blip_buffer_t** bb, size_t len) {
   }
 }
 
+// dump a wave synth state hint as pseudo register writes.
+// the VGM exporter turns the group into a 67 66 FE kind-03 data block
+// (and kind-05 wavetable dumps for the referenced source waves), so a
+// stream converter can replicate the wave synth at runtime instead of
+// storing every generated waveform.
+void DivPlatformPCE::dumpWSHint(int ch, DivInstrument* ins, bool reset) {
+  if (!dumpWrites) return;
+  DivInstrumentWaveSynth& wss=ins->ws;
+  unsigned int flags=(wss.enabled?1:0)|(wss.oneShot?2:0)|(wss.global?4:0)|(reset?8:0);
+  unsigned int state=wss.effect|(flags<<8)|(wss.rateDivider<<16)|(wss.speed<<24);
+  unsigned int params=wss.param1|(wss.param2<<8)|(wss.param3<<16)|(wss.param4<<24);
+  unsigned int waves=(wss.wave1&0xffff)|((wss.wave2&0xffff)<<16);
+  addWrite(0xfffe0000|(ch<<8)|0,state);
+  addWrite(0xfffe0000|(ch<<8)|1,params);
+  addWrite(0xfffe0000|(ch<<8)|2,waves);
+}
+
 // this function updates the waveform of a channel.
 void DivPlatformPCE::updateWave(int ch) {
   // if we're in PCM mode, schedule a wave update.
@@ -204,9 +221,11 @@ void DivPlatformPCE::updateWave(int ch) {
     return;
   }
 
-  // turn the channel off, and prepare it for loading a waveform
-  chWrite(ch,0x04,0x5f);
-  chWrite(ch,0x04,0x1f);
+  // turn the channel off, and prepare it for loading a waveform.
+  // keep the current volume bits: the volume update process may run
+  // mid-upload and latch these (fixed 0x5f/0x1f latches full volume).
+  chWrite(ch,0x04,0x40|chan[ch].outVol);
+  chWrite(ch,0x04,chan[ch].outVol);
   // write the new waveform
   // we take the wave synth's output. this also manages our waveforms when disabled.
   // the waveform is shifted by the predicted current position (if anti-click is enabled).
@@ -289,6 +308,8 @@ void DivPlatformPCE::tick(bool sysTick) {
         // tell the wave synth to perform a wave change
         chan[i].wave=chan[i].std.wave.val;
         chan[i].ws.changeWave1(chan[i].wave);
+        // wave synth hint: source wave 1 changed (VGM export only)
+        if (dumpWrites && chan[i].wsHintOn) addWrite(0xfffe0000|(i<<8)|3,chan[i].wave&0xffff);
         if (!chan[i].keyOff) chan[i].keyOn=true;
       }
     }
@@ -526,7 +547,15 @@ int DivPlatformPCE::dispatch(DivCommand c) {
         chan[c.chan].ws.changeWave1(chan[c.chan].wave);
       }
       // initialize the wave synth/wave engine
-      chan[c.chan].ws.init(ins,32,31,chan[c.chan].insChanged);
+      {
+        bool wsReset=chan[c.chan].insChanged||!ins->ws.global;
+        chan[c.chan].ws.init(ins,32,31,chan[c.chan].insChanged);
+        // wave synth hint: dump state on init, or once when it turns off
+        if (dumpWrites && (ins->ws.enabled||chan[c.chan].wsHintOn)) {
+          dumpWSHint(c.chan,ins,wsReset);
+          chan[c.chan].wsHintOn=ins->ws.enabled;
+        }
+      }
       // acknowledge an instrument change.
       // PCE doesn't have any special instrument features, so this goes unused.
       chan[c.chan].insChanged=false;
@@ -592,6 +621,8 @@ int DivPlatformPCE::dispatch(DivCommand c) {
       // we use wave synth to do this
       chan[c.chan].wave=c.value;
       chan[c.chan].ws.changeWave1(chan[c.chan].wave);
+      // wave synth hint: source wave 1 changed (VGM export only)
+      if (dumpWrites && chan[c.chan].wsHintOn) addWrite(0xfffe0000|(c.chan<<8)|3,chan[c.chan].wave&0xffff);
       // there's a key on here for some reason...
       chan[c.chan].keyOn=true;
       break;

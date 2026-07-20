@@ -1254,7 +1254,7 @@ void DivEngine::performVGMWrite(SafeWriter* w, DivSystem sys, DivRegWrite& write
   chipVol.push_back((_id)|(0x80000100)|(((unsigned int)_vol)<<16)); \
 }
 
-SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool patternHints, bool directStream, int trailingTicks, bool dpcm07, int correctedRate) {
+SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool patternHints, bool directStream, int trailingTicks, bool dpcm07, int correctedRate, bool noteHints) {
   if (version<0x150) {
     lastError="VGM version is too low";
     return NULL;
@@ -2686,6 +2686,43 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
     chan[i].wentThroughNote=false;
     chan[i].goneThroughNote=false;
   }
+  // note hints use the command stream to detect new notes
+  bool oldCmdStreamEnabled=cmdStreamEnabled;
+  if (noteHints) {
+    cmdStream.clear();
+    cmdStreamEnabled=true;
+  }
+  // wave synth hints (PCE): the dispatch dumps state changes as
+  // 0xfffe0000-range pseudo-writes (see pce.cpp dumpWSHint). they are
+  // assembled here into 67 66 FE kind-03 (state) / kind-04 (wave 1
+  // change) blocks, with kind-05 source wavetable dumps (32x31,
+  // resampled the same way DivWaveSynth::changeWave1 does) emitted on
+  // first reference. enabled together with note hints.
+  unsigned int wsAccum[DIV_MAX_CHANS][2];
+  memset(wsAccum,0,sizeof(wsAccum));
+  std::vector<bool> wsWaveDumped(song.waveLen,false);
+  auto writeWSWave=[&](int num) {
+    if (num<0||num>=song.waveLen) return;
+    if (wsWaveDumped[num]) return;
+    wsWaveDumped[num]=true;
+    DivWavetable* wv=song.wave[num];
+    w->writeC(0x67);
+    w->writeC(0x66);
+    w->writeC(0xfe);
+    w->writeI(3+32);
+    w->writeC(0x05);
+    w->writeC(num&0xff);
+    w->writeC((num>>8)&0xff);
+    for (int j=0; j<32; j++) {
+      int d=0;
+      if (wv->max>0 && wv->len>0) {
+        d=wv->data[j*wv->len/32]*31/wv->max;
+        if (d<0) d=0;
+        if (d>31) d=31;
+      }
+      w->writeC(d);
+    }
+  };
   while (!done) {
     if (loopPos==-1) {
       if (loopOrder==curOrder && loopRow==curRow) {
@@ -2774,7 +2811,27 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
           }
         }
       }
+
+      // check for new notes
+      if (noteHints) {
+        for (DivCommand& c: cmdStream) {
+          if (c.cmd!=DIV_CMD_NOTE_ON) continue;
+          if (c.chan<0 || c.chan>=song.chans) continue;
+          if (!willExport[song.dispatchOfChan[c.chan]]) continue;
+          int exportChan=0;
+          for (int i=0; i<c.chan; i++) {
+            if (willExport[song.dispatchOfChan[i]]) exportChan++;
+          }
+          w->writeC(0x67);
+          w->writeC(0x66);
+          w->writeC(0xfe);
+          w->writeI(2);
+          w->writeC(0x02);
+          w->writeC(exportChan);
+        }
+      }
     }
+    if (noteHints) cmdStream.clear();
 
     auto runStreams=[&](int runTime, int& wtAccum) -> int {
       if (!directStream) {
@@ -2895,6 +2952,59 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
           }
           lastOne=i.second.time;
         }
+        // wave synth hint pseudo-write (PCE, see pce.cpp dumpWSHint):
+        // never a chip write. assembled and emitted as data blocks.
+        if (i.second.write.addr>=0xfffe0000 && i.second.write.addr<0xffff0000) {
+          if (noteHints) {
+            int wch=(i.second.write.addr>>8)&0xff;
+            int sub=i.second.write.addr&0xff;
+            unsigned int v=i.second.write.val;
+            if (wch<DIV_MAX_CHANS) {
+              if (sub==0) {
+                wsAccum[wch][0]=v;
+              } else if (sub==1) {
+                wsAccum[wch][1]=v;
+              } else if (sub==2) {
+                int w1=v&0xffff;
+                int w2=(v>>16)&0xffff;
+                writeWSWave(w1);
+                writeWSWave(w2);
+                unsigned int a=wsAccum[wch][0];
+                unsigned int b=wsAccum[wch][1];
+                w->writeC(0x67);
+                w->writeC(0x66);
+                w->writeC(0xfe);
+                w->writeI(14);
+                w->writeC(0x03);
+                w->writeC(wch);
+                w->writeC(a&0xff);         // effect
+                w->writeC((a>>8)&0xff);    // flags: enabled|oneShot|global|reset
+                w->writeC((a>>16)&0xff);   // rateDivider
+                w->writeC((a>>24)&0xff);   // speed
+                w->writeC(b&0xff);         // param1
+                w->writeC((b>>8)&0xff);    // param2
+                w->writeC((b>>16)&0xff);   // param3
+                w->writeC((b>>24)&0xff);   // param4
+                w->writeC(w1&0xff);
+                w->writeC((w1>>8)&0xff);
+                w->writeC(w2&0xff);
+                w->writeC((w2>>8)&0xff);
+              } else if (sub==3) {
+                int w1=v&0xffff;
+                writeWSWave(w1);
+                w->writeC(0x67);
+                w->writeC(0x66);
+                w->writeC(0xfe);
+                w->writeI(4);
+                w->writeC(0x04);
+                w->writeC(wch);
+                w->writeC(w1&0xff);
+                w->writeC((w1>>8)&0xff);
+              }
+            }
+          }
+          continue;
+        }
         // write write
         performVGMWrite(w,song.system[i.first],i.second.write,streamIDs[i.first],loopTimer,loopFreq,loopSample,sampleDir,isSecond[i.first],pendingFreq,playingSample,setPos,sampleOff8,sampleLen8,bankOffset[i.first],directStream,sampleStoppable,dpcm07,writeNES,correctedRate);
         writeCount++;
@@ -2930,6 +3040,11 @@ SafeWriter* DivEngine::saveVGM(bool* sysToExport, bool loop, int version, bool p
   }
   // end of song
   w->writeC(0x66);
+
+  if (noteHints) {
+    cmdStream.clear();
+    cmdStreamEnabled=oldCmdStreamEnabled;
+  }
 
   got.rate=origRate;
 

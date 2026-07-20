@@ -718,6 +718,45 @@ String macroHover(int id, float val, void* u) {
   return fmt::sprintf("%d: %d",id,(int)val);
 }
 
+// log display divisors: amplitude=2^((value-max)/div).
+// - amplitude view: half amplitude per 6dB.
+//   PCE volume is 1.5dB per step (div 4); PCE panning is 3dB per step (div 2).
+// - perception view: half perceived loudness per 10dB (Stevens' law/sone scale),
+//   so div = 10dB/(dB per step).
+#define LOGVOL_DIV_AMP_VOL_PCE 4.0f
+#define LOGVOL_DIV_AMP_PAN_PCE 2.0f
+#define LOGVOL_DIV_LOUD_VOL_PCE 6.6438f
+#define LOGVOL_DIV_LOUD_PAN_PCE 3.3219f
+
+// PCE volume is logarithmic: each step below maximum attenuates by 2^(1/4) (~1.5dB).
+// value 0 is a hard mute.
+// the plot displays amplitude, so the raw step is read from the macro data (u).
+String macroHoverVolPCE(int id, float val, void* u) {
+  int v;
+  if (u==NULL) {
+    v=(int)val;
+  } else {
+    v=((int*)u)[id&255];
+  }
+  if (v<=0) return fmt::sprintf(_("%d: 0 (mute)"),id);
+  double db=1.50515*(v-31);
+  return fmt::sprintf(_("%d: %d (%.1fdB, ~%.0f%% loud)"),id,v,db,100.0*pow(2.0,db/10.0));
+}
+
+// PCE panning is also logarithmic at ~3dB per step, but 0 is the quietest
+// level (~-45dB), not a mute.
+String macroHoverPanPCE(int id, float val, void* u) {
+  int v;
+  if (u==NULL) {
+    v=(int)val;
+  } else {
+    v=((int*)u)[id&255];
+  }
+  if (v<0) v=0;
+  double db=3.0103*(v-15);
+  return fmt::sprintf(_("%d: %d (%.1fdB, ~%.0f%% loud)"),id,v,db,100.0*pow(2.0,db/10.0));
+}
+
 String macroHoverLoop(int id, float val, void* u) {
   if (val>1) return _("Release");
   if (val>0) return _("Loop");
@@ -2122,6 +2161,10 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       } else {
         asFloat[j]=deBit30(i.macro->val[j+macroDragScroll]);
         asInt[j]=deBit30(i.macro->val[j+macroDragScroll]);
+        if (i.logVolDiv>0.0f) {
+          // draw log volume/panning as actual output amplitude
+          asFloat[j]=(asFloat[j]<=0.0f && i.logVolZeroMute)?0.0f:(i.max*pow(2.0,(asFloat[j]-i.max)/i.logVolDiv));
+        }
         if (i.bit30) bit30Indicator[j]=enBit30(i.macro->val[j+macroDragScroll]);
       }
       if (j+macroDragScroll>=i.macro->len || (j+macroDragScroll>i.macro->rel && i.macro->loop<i.macro->rel)) {
@@ -2191,6 +2234,9 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
       macroDragInitialValue=false;
       macroDragLen=totalFit;
       macroDragActive=true;
+      macroDragLogVol=(i.logVolDiv>0.0f);
+      macroDragLogVolMax=i.max;
+      macroDragLogVolDiv=(i.logVolDiv>0.0f)?i.logVolDiv:4.0f;
       macroDragBit30=i.bit30;
       macroDragSettingBit30=false;
       macroDragTarget=i.macro->val;
@@ -2271,6 +2317,7 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
           macroDragInitialValue=false;
           macroDragLen=totalFit;
           macroDragActive=true;
+          macroDragLogVol=false;
           macroDragBit30=i.bit30;
           macroDragSettingBit30=true;
           macroDragTarget=i.macro->val;
@@ -2564,6 +2611,136 @@ void FurnaceGUI::drawMacroEdit(FurnaceGUIMacroDesc& i, int totalFit, float avail
         }
 
         ImGui::EndTable();
+      }
+
+      // envelope preview: simulate the ADSR (same algorithm as macroInt.cpp)
+      // and draw it under the parameters. the bars show output amplitude
+      // (log-scaled if the macro displays log volume) and the line shows the
+      // raw envelope level. the note is released at the marker.
+      if (i.macro->open&1) {
+        static float adsrPreviewBar[256];
+        static int adsrPreviewRaw[256];
+        static int adsrPreviewPhase[256];
+        static int adsrPreviewDelay[256];
+        static bool adsrPreviewHi[256];
+
+        const int aLow=i.macro->val[0];
+        const int aHigh=i.macro->val[1];
+        const bool aInv=(aLow>aHigh);
+        const int aBottom=aInv?((aLow<<8)|0xff):(aLow<<8);
+        const int aTop=aInv?(aHigh<<8):((aHigh<<8)|0xff);
+        const int aSus=aInv?(i.macro->val[5]<<8):((i.macro->val[5]<<8)|0xff);
+        const int releaseTick=192;
+        int aPos=aBottom;
+        int aPhase=0;
+        int aDelay=0;
+        for (int t=0; t<256; t++) {
+          if (t==releaseTick && aPhase<3) {
+            aPhase=3;
+            aDelay=0;
+          }
+          if (aDelay>0) {
+            aDelay--;
+          } else switch (aPhase) {
+            case 0: // attack
+              aPos+=aInv?(-i.macro->val[2]):i.macro->val[2];
+              if (aInv?(aPos<=aTop):(aPos>=aTop)) {
+                aPos=aTop;
+                aPhase=1;
+                aDelay=i.macro->val[3];
+              }
+              break;
+            case 1: // decay
+              aPos+=aInv?i.macro->val[4]:(-i.macro->val[4]);
+              if (aInv?(aPos>=aSus):(aPos<=aSus)) {
+                aPos=aSus;
+                aPhase=2;
+                aDelay=i.macro->val[6];
+              }
+              break;
+            case 2: // sustain
+              aPos+=aInv?i.macro->val[7]:(-i.macro->val[7]);
+              if (aInv?(aPos>=aBottom):(aPos<=aBottom)) {
+                aPos=aBottom;
+                aPhase=4;
+              }
+              break;
+            case 3: // release
+              aPos+=aInv?i.macro->val[8]:(-i.macro->val[8]);
+              if (aInv?(aPos>=aBottom):(aPos<=aBottom)) {
+                aPos=aBottom;
+                aPhase=4;
+              }
+              break;
+            case 4: // end
+              aPos=aBottom;
+              break;
+          }
+          adsrPreviewRaw[t]=aPos>>8;
+          adsrPreviewPhase[t]=aPhase;
+          adsrPreviewDelay[t]=aDelay;
+          if (i.logVolDiv>0.0f) {
+            adsrPreviewBar[t]=(adsrPreviewRaw[t]<=0 && i.logVolZeroMute)?0.0f:(i.max*pow(2.0,(adsrPreviewRaw[t]-i.max)/i.logVolDiv));
+          } else {
+            adsrPreviewBar[t]=adsrPreviewRaw[t];
+          }
+        }
+
+        // highlight the playing position: map each playing channel's envelope
+        // state (phase, level, remaining delay) to the closest preview tick
+        memset(adsrPreviewHi,0,256*sizeof(bool));
+        if (e->isRunning()) for (int j=0; j<e->getTotalChannelCount(); j++) {
+          DivChannelState* chanState=e->getChanState(j);
+          if (chanState==NULL) continue;
+          if (chanState->lastIns!=curIns) continue;
+
+          DivMacroInt* macroInt=e->getMacroInt(j);
+          if (macroInt==NULL) continue;
+
+          DivMacroStruct* macroStruct=macroInt->structByType(i.macro->macroType);
+          if (macroStruct==NULL) continue;
+          if (macroStruct->type!=1) continue;
+          if (!macroStruct->actualHad) continue;
+
+          int best=-1;
+          int bestScore=0x7fffffff;
+          for (int t=0; t<256; t++) {
+            if (adsrPreviewPhase[t]!=macroStruct->lastPos) continue;
+            int score=abs(adsrPreviewRaw[t]-macroStruct->val)*256+abs(adsrPreviewDelay[t]-macroStruct->delay);
+            if (score<bestScore) {
+              bestScore=score;
+              best=t;
+            }
+          }
+          if (best>=0) adsrPreviewHi[best]=true;
+        }
+
+        PlotCustom("##IMacroADSRPreview",adsrPreviewBar,256,0,NULL,i.min,i.max,ImVec2(availableWidth,96.0f*dpiScale),sizeof(float),i.color,256,i.hoverFunc,i.hoverFunc?adsrPreviewRaw:NULL,true);
+
+        // draw the raw envelope line and release marker on top
+        ImDrawList* dl=ImGui::GetWindowDrawList();
+        ImVec2 rMin=ImGui::GetItemRectMin();
+        ImVec2 rMax=ImGui::GetItemRectMax();
+        const float rW=rMax.x-rMin.x;
+        const float rH=rMax.y-rMin.y;
+        ImVec2 prevPoint;
+        for (int t=0; t<256; t++) {
+          ImVec2 curPoint=ImVec2(
+            rMin.x+rW*(t+0.5f)/256.0f,
+            rMax.y-rH*float(adsrPreviewRaw[t]-i.min)/float(MAX(1,i.max-i.min))
+          );
+          if (t>0) dl->AddLine(prevPoint,curPoint,ImGui::GetColorU32(ImGuiCol_Text,0.6f),dpiScale);
+          prevPoint=curPoint;
+        }
+        const float relX=rMin.x+rW*((float)releaseTick/256.0f);
+        dl->AddLine(ImVec2(relX,rMin.y),ImVec2(relX,rMax.y),ImGui::GetColorU32(ImVec4(1.0f,0.3f,0.3f,0.5f)),dpiScale);
+
+        // playing positions as vertical lines
+        for (int t=0; t<256; t++) {
+          if (!adsrPreviewHi[t]) continue;
+          const float hiX=rMin.x+rW*(t+0.5f)/256.0f;
+          dl->AddLine(ImVec2(hiX,rMin.y),ImVec2(hiX,rMax.y),ImGui::GetColorU32(uiColors[GUI_COLOR_MACRO_HIGHLIGHT]),2.0f*dpiScale);
+        }
       }
     }
     if (i.macro->open&4) {
@@ -7900,6 +8077,7 @@ void FurnaceGUI::drawInsEdit() {
             macroDragInitialValue=false;
             macroDragLen=32;
             macroDragActive=true;
+            macroDragLogVol=false;
             macroDragCTarget=(unsigned char*)ins->fds.modTable;
             macroDragChar=true;
             macroDragLineMode=false;
@@ -7951,6 +8129,7 @@ void FurnaceGUI::drawInsEdit() {
             macroDragInitialValue=false;
             macroDragLen=32;
             macroDragActive=true;
+            macroDragLogVol=false;
             macroDragCTarget=(unsigned char*)ins->fds.modTable;
             macroDragChar=true;
             macroDragLineMode=false;
@@ -8317,14 +8496,20 @@ void FurnaceGUI::drawInsEdit() {
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;
             case DIV_INS_PCE:
-              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME]));
+              macroList.push_back(FurnaceGUIMacroDesc(_("Volume"),&ins->std.volMacro,0,31,160,uiColors[GUI_COLOR_MACRO_VOLUME],false,NULL,settings.volMacroDisplay?macroHoverVolPCE:NULL,false,NULL,false,settings.volMacroDisplay?ins->std.volMacro.val:NULL));
+              if (settings.volMacroDisplay) {
+                macroList.back().logVolDiv=(settings.volMacroDisplay==2)?LOGVOL_DIV_LOUD_VOL_PCE:LOGVOL_DIV_AMP_VOL_PCE;
+                macroList.back().logVolZeroMute=true;
+              }
               macroList.push_back(FurnaceGUIMacroDesc(_("Arpeggio"),&ins->std.arpMacro,-120,120,160,uiColors[GUI_COLOR_MACRO_PITCH],true,NULL,macroHoverNote,false,NULL,true,ins->std.arpMacro.val));
               if (!ins->amiga.useSample) {
                 macroList.push_back(FurnaceGUIMacroDesc(_("Noise"),&ins->std.dutyMacro,0,1,160,uiColors[GUI_COLOR_MACRO_NOISE]));
               }
               macroList.push_back(FurnaceGUIMacroDesc(_("Waveform"),&ins->std.waveMacro,0,waveCount,160,uiColors[GUI_COLOR_MACRO_WAVE],false,NULL,NULL,false,NULL));
-              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (left)"),&ins->std.panLMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL));
-              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (right)"),&ins->std.panRMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER]));
+              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (left)"),&ins->std.panLMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDisplay?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDisplay?ins->std.panLMacro.val:NULL));
+              if (settings.volMacroDisplay) macroList.back().logVolDiv=(settings.volMacroDisplay==2)?LOGVOL_DIV_LOUD_PAN_PCE:LOGVOL_DIV_AMP_PAN_PCE;
+              macroList.push_back(FurnaceGUIMacroDesc(_("Panning (right)"),&ins->std.panRMacro,0,15,46,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,settings.volMacroDisplay?macroHoverPanPCE:NULL,false,NULL,false,settings.volMacroDisplay?ins->std.panRMacro.val:NULL));
+              if (settings.volMacroDisplay) macroList.back().logVolDiv=(settings.volMacroDisplay==2)?LOGVOL_DIV_LOUD_PAN_PCE:LOGVOL_DIV_AMP_PAN_PCE;
               macroList.push_back(FurnaceGUIMacroDesc(_("Pitch"),&ins->std.pitchMacro,-2048,2047,160,uiColors[GUI_COLOR_MACRO_PITCH],true,macroRelativeMode));
               macroList.push_back(FurnaceGUIMacroDesc(_("Phase Reset"),&ins->std.phaseResetMacro,0,1,32,uiColors[GUI_COLOR_MACRO_OTHER],false,NULL,NULL,true));
               break;

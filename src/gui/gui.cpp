@@ -3403,6 +3403,15 @@ void FurnaceGUI::processDrags(int dragX, int dragY) {
       int y;
       if (macroDragBitMode) {
         y=(int)(macroDragMax-((dragY-macroDragStart.y)*(double(macroDragMax-macroDragMin)/(double)MAX(1,macroDragAreaSize.y))));
+      } else if (macroDragLogVol) {
+        // the plot displays amplitude - convert the mouse position back to a register step
+        // (inverse of the 2^(step/logVolDiv) curve used for display)
+        double amp=macroDragMax-((dragY-macroDragStart.y)*(double(macroDragMax-macroDragMin)/(double)MAX(1,macroDragAreaSize.y)));
+        if (amp<=(macroDragLogVolMax*pow(2.0,(0.5-macroDragLogVolMax)/macroDragLogVolDiv))) {
+          y=0;
+        } else {
+          y=round(macroDragLogVolMax+macroDragLogVolDiv*log2(amp/macroDragLogVolMax));
+        }
       } else {
         y=round(macroDragMax-((dragY-macroDragStart.y)*(double(macroDragMax-macroDragMin)/(double)MAX(1,macroDragAreaSize.y))));
       }
@@ -6457,7 +6466,7 @@ bool FurnaceGUI::loop() {
               break;
             }
             case GUI_FILE_EXPORT_VGM: {
-              SafeWriter* w=e->saveVGM(willExport,vgmExportLoop,vgmExportVersion,vgmExportPatternHints,vgmExportDirectStream,vgmExportTrailingTicks,vgmExportDPCM07,vgmExportCorrectedRate);
+              SafeWriter* w=e->saveVGM(willExport,vgmExportLoop,vgmExportVersion,vgmExportPatternHints,vgmExportDirectStream,vgmExportTrailingTicks,vgmExportDPCM07,vgmExportCorrectedRate,vgmExportNoteHints);
               if (w!=NULL) {
                 FILE* f=ps_fopen(copyOfName.c_str(),"wb");
                 if (f!=NULL) {
@@ -9213,6 +9222,7 @@ FurnaceGUI::FurnaceGUI():
   displayExporting(false),
   vgmExportLoop(true),
   vgmExportPatternHints(false),
+  vgmExportNoteHints(false),
   vgmExportDPCM07(false),
   vgmExportDirectStream(false),
   displayInsTypeList(false),
@@ -9557,6 +9567,9 @@ FurnaceGUI::FurnaceGUI():
   macroDragLineInitial(0,0),
   macroDragLineInitialV(0,0),
   macroDragActive(false),
+  macroDragLogVol(false),
+  macroDragLogVolMax(31.0f),
+  macroDragLogVolDiv(4.0f),
   lastMacroDesc(NULL,NULL,0,0,0.0f),
   macroOffX(0),
   macroOffY(0),
