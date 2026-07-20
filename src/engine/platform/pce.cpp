@@ -203,10 +203,13 @@ void DivPlatformPCE::acquireDirect(blip_buffer_t** bb, size_t len) {
 void DivPlatformPCE::dumpWSHint(int ch, DivInstrument* ins, bool reset) {
   if (!dumpWrites) return;
   DivInstrumentWaveSynth& wss=ins->ws;
-  unsigned char flags=(wss.enabled?1:0)|(wss.oneShot?2:0)|(wss.global?4:0)|(reset?8:0);
-  addWrite(0xfffe0000|(ch<<8)|0,((unsigned int)wss.effect)|(((unsigned int)flags)<<8)|(((unsigned int)wss.rateDivider)<<16)|(((unsigned int)wss.speed)<<24));
-  addWrite(0xfffe0000|(ch<<8)|1,((unsigned int)wss.param1)|(((unsigned int)wss.param2)<<8)|(((unsigned int)wss.param3)<<16)|(((unsigned int)wss.param4)<<24));
-  addWrite(0xfffe0000|(ch<<8)|2,((unsigned int)(wss.wave1&0xffff))|(((unsigned int)(wss.wave2&0xffff))<<16));
+  unsigned int flags=(wss.enabled?1:0)|(wss.oneShot?2:0)|(wss.global?4:0)|(reset?8:0);
+  unsigned int state=wss.effect|(flags<<8)|(wss.rateDivider<<16)|(wss.speed<<24);
+  unsigned int params=wss.param1|(wss.param2<<8)|(wss.param3<<16)|(wss.param4<<24);
+  unsigned int waves=(wss.wave1&0xffff)|((wss.wave2&0xffff)<<16);
+  addWrite(0xfffe0000|(ch<<8)|0,state);
+  addWrite(0xfffe0000|(ch<<8)|1,params);
+  addWrite(0xfffe0000|(ch<<8)|2,waves);
 }
 
 // this function updates the waveform of a channel.
@@ -219,13 +222,8 @@ void DivPlatformPCE::updateWave(int ch) {
   }
 
   // turn the channel off, and prepare it for loading a waveform.
-  // the dance carries the channel's CURRENT volume bits instead of the
-  // stock fixed $5F/$1F: the PSG applies volume through a free-running
-  // ~2kHz per-side update sweep, and a sweep slot landing mid-upload
-  // latches whatever the register holds - with $5F/$1F that is FULL
-  // volume, heard as persistent per-side level errors on songs with
-  // frequent waveform updates. same bit7/bit6 transitions, so the
-  // waveform pointer reset behavior is unchanged.
+  // keep the current volume bits: the volume update process may run
+  // mid-upload and latch these (fixed 0x5f/0x1f latches full volume).
   chWrite(ch,0x04,0x40|chan[ch].outVol);
   chWrite(ch,0x04,chan[ch].outVol);
   // write the new waveform
@@ -552,8 +550,7 @@ int DivPlatformPCE::dispatch(DivCommand c) {
       {
         bool wsReset=chan[c.chan].insChanged||!ins->ws.global;
         chan[c.chan].ws.init(ins,32,31,chan[c.chan].insChanged);
-        // wave synth hint: dump the state on init when the synth is
-        // enabled, or once on the enabled->disabled transition
+        // wave synth hint: dump state on init, or once when it turns off
         if (dumpWrites && (ins->ws.enabled||chan[c.chan].wsHintOn)) {
           dumpWSHint(c.chan,ins,wsReset);
           chan[c.chan].wsHintOn=ins->ws.enabled;
