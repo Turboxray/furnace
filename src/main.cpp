@@ -91,6 +91,7 @@ String vgmOutName;
 String cmdOutName;
 String romOutName;
 String txtOutName;
+String furOutName;
 int benchMode=0;
 int subsong=-1;
 DivCSOptions csExportOptions;
@@ -636,9 +637,15 @@ TAParamResult pTxtOut(String val) {
   return TA_PARAM_SUCCESS;
 }
 
+TAParamResult pFurOut(String val) {
+  furOutName=val;
+  e.setAudio(DIV_AUDIO_DUMMY);
+  return TA_PARAM_SUCCESS;
+}
+
 bool needsValue(String param) {
   for (size_t i=0; i<params.size(); i++) {
-    if (params[i].name==param) {
+    if (params[i].name==param || (params[i].shortName!="" && params[i].shortName==param)) {
       return params[i].value;
     }
   }
@@ -665,6 +672,7 @@ void initParams() {
   params.push_back(TAParam("r","romout",true,pROMOut,"<filename|path>","export ROM file, or path for multi-file export"));
   params.push_back(TAParam("R","romconf",true,pROMConf,"<key>=<value>","set configuration parameter for ROM export"));
   params.push_back(TAParam("t","txtout",true,pTxtOut,"<filename>","export as text file"));
+  params.push_back(TAParam("F","furout",true,pFurOut,"<filename>","save loaded song as .fur (format conversion)"));
   params.push_back(TAParam("L","loglevel",true,pLogLevel,"debug|info|warning|error","set the log level (info by default)"));
   params.push_back(TAParam("v","view",true,pView,"pattern|commands|nothing","set visualization (nothing by default)"));
   params.push_back(TAParam("i","info",false,pInfo,"","get info about a song"));
@@ -764,6 +772,7 @@ int main(int argc, char** argv) {
   cmdOutName="";
   romOutName="";
   txtOutName="";
+  furOutName="";
 
   // load config for locale
   e.prePreInit();
@@ -931,7 +940,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const bool outputMode = outName!="" || vgmOutName!="" || cmdOutName!="" || romOutName!="" || txtOutName!="";
+  const bool outputMode = outName!="" || vgmOutName!="" || cmdOutName!="" || romOutName!="" || txtOutName!="" || furOutName!="";
 
   if (fileName.empty() && (benchMode || infoMode || outputMode)) {
     logE("provide a file!");
@@ -1099,6 +1108,22 @@ int main(int argc, char** argv) {
         delete w;
       } else {
         reportError(_("could not write VGM!"));
+      }
+    }
+    if (furOutName!="") {
+      SafeWriter* w=e.saveFur();
+      if (w!=NULL) {
+        FILE* f=ps_fopen(furOutName.c_str(),"wb");
+        if (f!=NULL) {
+          fwrite(w->getFinalBuf(),1,w->size(),f);
+          fclose(f);
+        } else {
+          reportError(fmt::sprintf(_("could not open file! (%s)"),strerror(errno)));
+        }
+        w->finish();
+        delete w;
+      } else {
+        reportError(_("could not write .fur!"));
       }
     }
     if (outName!="") {
