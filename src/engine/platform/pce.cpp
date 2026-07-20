@@ -218,9 +218,16 @@ void DivPlatformPCE::updateWave(int ch) {
     return;
   }
 
-  // turn the channel off, and prepare it for loading a waveform
-  chWrite(ch,0x04,0x5f);
-  chWrite(ch,0x04,0x1f);
+  // turn the channel off, and prepare it for loading a waveform.
+  // the dance carries the channel's CURRENT volume bits instead of the
+  // stock fixed $5F/$1F: the PSG applies volume through a free-running
+  // ~2kHz per-side update sweep, and a sweep slot landing mid-upload
+  // latches whatever the register holds - with $5F/$1F that is FULL
+  // volume, heard as persistent per-side level errors on songs with
+  // frequent waveform updates. same bit7/bit6 transitions, so the
+  // waveform pointer reset behavior is unchanged.
+  chWrite(ch,0x04,0x40|chan[ch].outVol);
+  chWrite(ch,0x04,chan[ch].outVol);
   // write the new waveform
   // we take the wave synth's output. this also manages our waveforms when disabled.
   // the waveform is shifted by the predicted current position (if anti-click is enabled).
